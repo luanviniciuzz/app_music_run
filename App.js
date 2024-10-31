@@ -64,95 +64,54 @@ const App = () => {
     }
   };
 
+  const [status, setStatus] = useState(false)
+  const [ativar, setAtivar] = useState(false)
 
   const [velocidade, setVelocidade] = useState(0);
+  const [pace, setPace] = useState(0); 
   const [lastUpdateTime, setLastUpdateTime] = useState(Date.now());
   const [velocidadeAtual, setVelocidadeAtual] = useState({ x: 0, y: 0, z: 0 });
   const [gravity, setGravity] = useState({ x: 0, y: 0, z: 0 });
 
-  useEffect(() => {
-    const alpha = 0.8; // Constante do filtro passa-baixa
-    const aceleracaoMinima = 0.1; // Limite mínimo para considerar movimento
-
-    const subscription = accelerometer
-      .pipe(
-        filter(({ x, y, z }) => x !== null && y !== null && z !== null),
-        map(({ x, y, z }) => {
-          // Atualiza o tempo e calcula delta de tempo
-          const currentTime = Date.now();
-          const deltaTime = (currentTime - lastUpdateTime) / 1000;
-          if (deltaTime === 0) return; // Evita divisão por zero
-          setLastUpdateTime(currentTime);
-
-          // Aplica o filtro passa-baixa para separar a gravidade
-          const gravityX = alpha * gravity.x + (1 - alpha) * x;
-          const gravityY = alpha * gravity.y + (1 - alpha) * y;
-          const gravityZ = alpha * gravity.z + (1 - alpha) * z;
-
-          // Aplica o filtro passa-alta para obter a aceleração linear
-          const linearAccelerationX = x - gravityX;
-          const linearAccelerationY = y - gravityY;
-          const linearAccelerationZ = z - gravityZ;
-
-          // Verifica se o dispositivo está praticamente parado
-          const totalAceleracao = Math.sqrt(
-            Math.pow(linearAccelerationX, 2) +
-            Math.pow(linearAccelerationY, 2) +
-            Math.pow(linearAccelerationZ, 2)
-          );
-
-          if (totalAceleracao < aceleracaoMinima) {
-            // Zera a velocidade se a aceleração for muito baixa
-            setVelocidade(0);
-            setVelocidadeAtual({ x: 0, y: 0, z: 0 });
-            setPace(calcularPace(0, 5)); // Define Pace como 'Parado'
-            return;
-          }
-
-          // Calcula a nova velocidade em cada eixo
-          const novaVelocidadeX = velocidadeAtual.x + linearAccelerationX * deltaTime;
-          const novaVelocidadeY = velocidadeAtual.y + linearAccelerationY * deltaTime;
-          const novaVelocidadeZ = velocidadeAtual.z + linearAccelerationZ * deltaTime;
-
-          // Calcula a velocidade total em m/s
-          const novaVelocidadeTotal = Math.sqrt(
-            Math.pow(novaVelocidadeX, 2) +
-            Math.pow(novaVelocidadeY, 2) +
-            Math.pow(novaVelocidadeZ, 2)
-          );
-
-          // Atualiza os estados
-          setVelocidade(novaVelocidadeTotal);
-          setVelocidadeAtual({ x: novaVelocidadeX, y: novaVelocidadeY, z: novaVelocidadeZ });
-          setGravity({ x: gravityX, y: gravityY, z: gravityZ });
-
-          // Calcula e atualiza o Pace
-          const novoPace = calcularPace(novaVelocidadeTotal, 5); // Considera distância de 5 km
-          setPace(novoPace);
-        })
-      )
-      .subscribe();
-
-    // Limpeza ao desmontar
-    return () => subscription.unsubscribe();
-  }, [lastUpdateTime, velocidadeAtual, gravity]);
-
-
-  const [pace, setPace] = useState('Parado'); // Estado para o Pace
-
-   // Função para calcular o Pace
-   const calcularPace = (velocidadeEmMs, distanciaEmKm) => {
+  const calcularPace = (velocidadeEmMs, distanciaEmKm) => {
     if (velocidadeEmMs === 0) {
-      return 'Parado'; // Retorna 'Parado' se a velocidade for zero
+      return 0;
     }
-    const velocidadeKmH = velocidadeEmMs * 3.6; // Converte para km/h
-    const paceMinPorKm = 60 / velocidadeKmH; // Calcula Pace em minutos por km
-    return paceMinPorKm.toFixed(2); // Formato com 2 casas decimais
+    const velocidadeKmH = velocidadeEmMs * 3.6; 
+    const paceMinPorKm = 60 / velocidadeKmH; 
+    return paceMinPorKm.toFixed(2); 
   };
 
+  function consultarAceleração(){
+      const alpha = 0.8; // Constante do filtro passa-baixa
+      const aceleracaoMinima = 0.1; // Limite mínimo para considerar movimento
 
-  const [status, setStatus] = useState(false)
+      setUpdateIntervalForType(SensorTypes.accelerometer, 1000); // defaults to 100ms
 
+      const subscription = accelerometer
+        .pipe(map(({ x, y, z }) => x + y + z), filter(speed => speed > 0))
+        .subscribe((e) => console.log(`You moved your phone with ${e.toFixed(2)}`));
+        
+      setTimeout(() => {
+        // If it's the last subscription to accelerometer it will stop polling in the native API
+        subscription.unsubscribe();
+      }, 1000);
+  }
+
+  let intervalo = null
+  function ativarAcelerometro(ativar){
+
+    if(ativar){
+      intervalo = setInterval(() => {
+        consultarAceleração()
+      },1000)
+    }else{
+      clearInterval(intervalo)
+    }
+
+  }
+
+  
   useEffect(() => {
     setupPlayer()
   },[])
@@ -225,23 +184,23 @@ const App = () => {
         console.error(e);
     }
 };
-  useEffect(() => {
-    async function musicSpeed(){
+  // useEffect(() => {
+  //   async function musicSpeed(){
 
-      console.log(pace)
-        if(pace == 'Parado'){
-          await TrackPlayer.setRate(1)
-        }else if(pace < 4 && pace > 3){
-          await TrackPlayer.setRate(1.25)
-        }else if(pace == 5 || pace == 4){
-          await TrackPlayer.setRate(1)
-        }else if(pace >= 6){
-          await TrackPlayer.setRate(0.5)
-        }
+  //     console.log(pace)
+  //       if(pace == 'Parado'){
+  //         await TrackPlayer.setRate(1)
+  //       }else if(pace < 4 && pace > 3){
+  //         await TrackPlayer.setRate(1.25)
+  //       }else if(pace == 5 || pace == 4){
+  //         await TrackPlayer.setRate(1)
+  //       }else if(pace >= 6){
+  //         await TrackPlayer.setRate(0.5)
+  //       }
 
-    }
-    musicSpeed()
-  },[pace])
+  //   }
+  //   musicSpeed()
+  // },[pace])
 
   const renderItens = ({item}) => {
     return(
@@ -270,18 +229,32 @@ const App = () => {
 
       <View style={styles.map_container}>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <Text>DISTÂNCIA de 5km</Text>
+          <Text>DISTÂNCIA de 5km</Text>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text>Velocidade: {"(velocidade * 3.6).toFixed(2)"} km/h</Text>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text>Pace: {"pace"} min/km</Text>
+        </View>
+        <TouchableOpacity
+          style={{backgroundColor:'red'}}
+          onPress={() => ativarAcelerometro(true)}
+        >
+          <Text style={{color:'white'}}>Consultar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={{backgroundColor:'red'}}
+          onPress={() => ativarAcelerometro(false)}
+        >
+          <Text style={{color:'white'}}>cacela</Text>
+        </TouchableOpacity>
       </View>
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text>Velocidade: {(velocidade * 3.6).toFixed(2)} km/h</Text>
-    </View>
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text>Pace: {pace} min/km</Text>
-    </View>
-      </View>
+
       <View style={{alignItems:"center", marginVertical:10}}>
         <Text style={{fontSize:20 , color: "#2d3436"}}>{"Escolha a música"}</Text>
       </View>
+
       <View style={styles.music_container}>
           <FlatList
             data={songs}
