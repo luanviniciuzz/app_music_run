@@ -1,9 +1,10 @@
 import React, {useEffect, useState} from 'react';
-import {StyleSheet,Button, View, Text, TouchableOpacity, FlatList, PermissionsAndroid, Alert} from 'react-native';
+import {StyleSheet,Button, View, Text, TouchableOpacity, FlatList, PermissionsAndroid, TextInput} from 'react-native';
 import TrackPlayer, {Capability} from 'react-native-track-player';
 //import { songs } from './src/data/MusicData';
 import Geolocation from '@react-native-community/geolocation';
-
+import {accelerometer , setUpdateIntervalForType, SensorTypes} from "react-native-sensors";
+import { map, filter } from "rxjs/operators";
 
 const App = () => {
 
@@ -63,18 +64,95 @@ const App = () => {
     }
   };
 
-  const [distance, setDistance] = useState(0); // em metros
-  const [startTime, setStartTime] = useState(null);
-  const [elapsedTime, setElapsedTime] = useState(0); // em segundos
-  const [isRunning, setIsRunning] = useState(false);
-  const [lastLocation, setLastLocation] = useState(null);
 
-  // const openMaps = () => {
-  //   const {latitude, longitude} = currentLocation
-  // }
+  const [velocidade, setVelocidade] = useState(0);
+  const [lastUpdateTime, setLastUpdateTime] = useState(Date.now());
+  const [velocidadeAtual, setVelocidadeAtual] = useState({ x: 0, y: 0, z: 0 });
+  const [gravity, setGravity] = useState({ x: 0, y: 0, z: 0 });
+
+  useEffect(() => {
+    const alpha = 0.8; // Constante do filtro passa-baixa
+    const aceleracaoMinima = 0.1; // Limite mínimo para considerar movimento
+
+    const subscription = accelerometer
+      .pipe(
+        filter(({ x, y, z }) => x !== null && y !== null && z !== null),
+        map(({ x, y, z }) => {
+          // Atualiza o tempo e calcula delta de tempo
+          const currentTime = Date.now();
+          const deltaTime = (currentTime - lastUpdateTime) / 1000;
+          if (deltaTime === 0) return; // Evita divisão por zero
+          setLastUpdateTime(currentTime);
+
+          // Aplica o filtro passa-baixa para separar a gravidade
+          const gravityX = alpha * gravity.x + (1 - alpha) * x;
+          const gravityY = alpha * gravity.y + (1 - alpha) * y;
+          const gravityZ = alpha * gravity.z + (1 - alpha) * z;
+
+          // Aplica o filtro passa-alta para obter a aceleração linear
+          const linearAccelerationX = x - gravityX;
+          const linearAccelerationY = y - gravityY;
+          const linearAccelerationZ = z - gravityZ;
+
+          // Verifica se o dispositivo está praticamente parado
+          const totalAceleracao = Math.sqrt(
+            Math.pow(linearAccelerationX, 2) +
+            Math.pow(linearAccelerationY, 2) +
+            Math.pow(linearAccelerationZ, 2)
+          );
+
+          if (totalAceleracao < aceleracaoMinima) {
+            // Zera a velocidade se a aceleração for muito baixa
+            setVelocidade(0);
+            setVelocidadeAtual({ x: 0, y: 0, z: 0 });
+            setPace(calcularPace(0, 5)); // Define Pace como 'Parado'
+            return;
+          }
+
+          // Calcula a nova velocidade em cada eixo
+          const novaVelocidadeX = velocidadeAtual.x + linearAccelerationX * deltaTime;
+          const novaVelocidadeY = velocidadeAtual.y + linearAccelerationY * deltaTime;
+          const novaVelocidadeZ = velocidadeAtual.z + linearAccelerationZ * deltaTime;
+
+          // Calcula a velocidade total em m/s
+          const novaVelocidadeTotal = Math.sqrt(
+            Math.pow(novaVelocidadeX, 2) +
+            Math.pow(novaVelocidadeY, 2) +
+            Math.pow(novaVelocidadeZ, 2)
+          );
+
+          // Atualiza os estados
+          setVelocidade(novaVelocidadeTotal);
+          setVelocidadeAtual({ x: novaVelocidadeX, y: novaVelocidadeY, z: novaVelocidadeZ });
+          setGravity({ x: gravityX, y: gravityY, z: gravityZ });
+
+          // Calcula e atualiza o Pace
+          const novoPace = calcularPace(novaVelocidadeTotal, 5); // Considera distância de 5 km
+          setPace(novoPace);
+        })
+      )
+      .subscribe();
+
+    // Limpeza ao desmontar
+    return () => subscription.unsubscribe();
+  }, [lastUpdateTime, velocidadeAtual, gravity]);
+
+
+  const [pace, setPace] = useState('Parado'); // Estado para o Pace
+
+   // Função para calcular o Pace
+   const calcularPace = (velocidadeEmMs, distanciaEmKm) => {
+    if (velocidadeEmMs === 0) {
+      return 'Parado'; // Retorna 'Parado' se a velocidade for zero
+    }
+    const velocidadeKmH = velocidadeEmMs * 3.6; // Converte para km/h
+    const paceMinPorKm = 60 / velocidadeKmH; // Calcula Pace em minutos por km
+    return paceMinPorKm.toFixed(2); // Formato com 2 casas decimais
+  };
+
 
   const [status, setStatus] = useState(false)
-  const [escolherMusica, setEscolherMusica] = useState(0)
+
   useEffect(() => {
     setupPlayer()
   },[])
@@ -108,65 +186,7 @@ const App = () => {
       console.log(e)
     }
   }
-  useEffect(() => {
-    let interval = null;
 
-    if (isRunning) {
-      interval = setInterval(() => {
-        setElapsedTime(prev => prev + 1); // incrementa o tempo a cada segundo
-      }, 1000);
-    } else if (!isRunning && elapsedTime !== 0) {
-      clearInterval(interval);
-    }
-
-    return () => clearInterval(interval);
-  }, [isRunning, elapsedTime]);
-
-  const startRun = () => {
-    setIsRunning(true);
-    setStartTime(Date.now());
-    setDistance(0);
-    setElapsedTime(0);
-    setLastLocation(null);
-    // Inicie a localização aqui
-    getLocation();
-  };
-  const stopRun = () => {
-    setIsRunning(false);
-    // Parar a localização
-  };
-  const getLocation = () => {
-    Geolocation.watchPosition(
-      position => {
-        const { latitude, longitude } = position.coords;
-        if (lastLocation) {
-          const newDistance = calculateDistance(lastLocation, { latitude, longitude });
-          setDistance(prev => prev + newDistance);
-        }
-        setLastLocation({ latitude, longitude });
-      },
-      error => {
-        console.error(error);
-      },
-      { enableHighAccuracy: true, distanceFilter: 0 }
-    );
-  };
-  const calculateDistance = (loc1, loc2) => {
-    const toRad = (value) => (value * Math.PI) / 180;
-    const R = 6371000; // Raio da Terra em metros
-    const dLat = toRad(loc2.latitude - loc1.latitude);
-    const dLon = toRad(loc2.longitude - loc1.longitude);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(loc1.latitude)) * Math.cos(toRad(loc2.latitude)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distância em metros
-  };
-
-  const pace = elapsedTime > 0 ? (elapsedTime / (distance / 1000)) : 0; // em segundos por quilômetro
-  const paceMinutes = Math.floor(pace / 60);
-  const paceSeconds = Math.round(pace % 60);
 
   async function handleButton(){
 
@@ -205,6 +225,23 @@ const App = () => {
         console.error(e);
     }
 };
+  useEffect(() => {
+    async function musicSpeed(){
+
+      console.log(pace)
+        if(pace == 'Parado'){
+          await TrackPlayer.setRate(1)
+        }else if(pace < 4 && pace > 3){
+          await TrackPlayer.setRate(1.25)
+        }else if(pace == 5 || pace == 4){
+          await TrackPlayer.setRate(1)
+        }else if(pace >= 6){
+          await TrackPlayer.setRate(0.5)
+        }
+
+    }
+    musicSpeed()
+  },[pace])
 
   const renderItens = ({item}) => {
     return(
@@ -213,7 +250,8 @@ const App = () => {
           height:50,
           backgroundColor:'#74b9ff',
           justifyContent:'center',
-          paddingLeft:'5%'
+          paddingLeft:'5%',
+          borderRadius:8
        }} 
         onPress={() => {selecionarMusica(item.id),handleButton()}}
         //onPress={() => console.log(songs[escolherMusica])}
@@ -223,6 +261,7 @@ const App = () => {
       </TouchableOpacity>
     )
   }
+
   return (
     <View style={[styles.container]}>
       <View style={{alignItems:"center", marginVertical:10}}>
@@ -230,25 +269,15 @@ const App = () => {
       </View>
 
       <View style={styles.map_container}>
-        <View>
-            <Text style={{fontSize:20}}>Distância: {(distance / 1000).toFixed(2)} km</Text>
-            <Text style={{fontSize:20}}>Tempo: {elapsedTime} s</Text>
-            <Text style={{fontSize:20}}>Pace: {pace > 0 ? `${paceMinutes}:${String(paceSeconds).padStart(2, '0')}` : 'N/A'}</Text>
-            <Button title={isRunning ? "Parar" : "Começar"} onPress={isRunning ? stopRun : startRun} />
-        </View>
-        {/* <View>
-          <Text>Latitude: {currentLocation ? currentLocation.latitude : 'Loading...'}</Text>
-          <Text>Longitude: {currentLocation ? currentLocation.longitude : 'Loading...'}</Text>
-        </View> */}
-
-        {/* <TouchableOpacity
-          style={{backgroundColor:'#74b9ff'}}
-          onPress={() => Permission()}
-        >
-          <Text>
-           Get location
-          </Text>
-        </TouchableOpacity> */}
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text>DISTÂNCIA de 5km</Text>
+      </View>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <Text>Velocidade: {(velocidade * 3.6).toFixed(2)} km/h</Text>
+    </View>
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <Text>Pace: {pace} min/km</Text>
+    </View>
       </View>
       <View style={{alignItems:"center", marginVertical:10}}>
         <Text style={{fontSize:20 , color: "#2d3436"}}>{"Escolha a música"}</Text>
@@ -263,19 +292,24 @@ const App = () => {
 
       </View>
       <View style={styles.footer_container}>
-        <TouchableOpacity style={{
-          width:100,
-          height:100,
-          borderRadius:50,
-          backgroundColor: status ? "#d63031" : "#00b894",
-          alignItems:"center",
-          justifyContent:"center"
-        }}
-          onPress={() => handleButton()}
-          //onPress={() => console.log(songs)}
-        >
-            <Text style={{fontSize:30 , color: "white"}}>{status ? "Stop" : "Play"}</Text>
-        </TouchableOpacity>
+        {
+          status ? (
+          <TouchableOpacity style={{
+                    width:100,
+                    height:100,
+                    borderRadius:50,
+                    backgroundColor:"#d63031",
+                    alignItems:"center",
+                    justifyContent:"center"
+                  }}
+                    onPress={() => handleButton()}
+                    //onPress={() => console.log(songs)}
+                  >
+                      <Text style={{fontSize:30 , color: "white"}}>{"Stop"}</Text>
+          </TouchableOpacity>
+          ) : null
+        }
+        
       </View>
     </View>
   );
@@ -287,7 +321,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   map_container:{
-    flex: 2, backgroundColor: '#b8e994', alignItems:"center", justifyContent:"center"
+    flex: 2, backgroundColor: '#b8e994', alignItems:"center", justifyContent:"center", borderRadius:8
   },
   music_container:{
     flex: 2, backgroundColor: 'white'
