@@ -65,37 +65,49 @@ const App = () => {
   };
 
   const [status, setStatus] = useState(false)
-  const [ativar, setAtivar] = useState(false)
+  const [velocidade, setVelocidade] = useState(0)
 
-  const [velocidade, setVelocidade] = useState(0);
-  const [pace, setPace] = useState(0); 
-  const [lastUpdateTime, setLastUpdateTime] = useState(Date.now());
-  const [velocidadeAtual, setVelocidadeAtual] = useState({ x: 0, y: 0, z: 0 });
-  const [gravity, setGravity] = useState({ x: 0, y: 0, z: 0 });
-
-  const calcularPace = (velocidadeEmMs, distanciaEmKm) => {
+  const calcularPace = (velocidadeEmMs) => {
     if (velocidadeEmMs === 0) {
       return 0;
     }
-    const velocidadeKmH = velocidadeEmMs * 3.6; 
-    const paceMinPorKm = 60 / velocidadeKmH; 
-    return paceMinPorKm.toFixed(2); 
+    let paceMinPorKm = 60 / velocidadeEmMs;
+    setPace(paceMinPorKm)
+    return paceMinPorKm 
   };
 
+  async function velocidadeDaMusica(index){
+    if(index == 0){
+      await TrackPlayer.setRate(1)
+    }else if(index == 2 || index == 3 || index == 4){
+      await TrackPlayer.setRate(1.25)
+    }else if(index == 5 || index == 6){
+      await TrackPlayer.setRate(1)
+    }else if(index > 6){
+      await TrackPlayer.setRate(0.5)
+    }
+  }
+
+  setUpdateIntervalForType(SensorTypes.accelerometer, 400);
+
   function consultarAceleração(){
-      const alpha = 0.8; // Constante do filtro passa-baixa
-      const aceleracaoMinima = 0.1; // Limite mínimo para considerar movimento
+    const subscription = accelerometer.subscribe(
+      ({x, y, z}) => {
+        let result = Math.sqrt(Math.pow(x.toFixed(1) , 2), Math.pow(y.toFixed(1) , 2), Math.pow(z.toFixed(1), 2))
+        console.log(result)
+        let velocidadeMedia  = result * 3.6
+        let paceMinPorKm = 60 / velocidadeMedia;
+        // if(status){
+        //   velocidadeDaMusica(paceMinPorKm)
+        // }
+        setVelocidade(velocidadeMedia)
+      }
+    )
 
-      setUpdateIntervalForType(SensorTypes.accelerometer, 1000); // defaults to 100ms
+     setTimeout(() => {
+      subscription.unsubscribe();
+    }, 1000);
 
-      const subscription = accelerometer
-        .pipe(map(({ x, y, z }) => x + y + z), filter(speed => speed > 0))
-        .subscribe((e) => console.log(`You moved your phone with ${e.toFixed(2)}`));
-        
-      setTimeout(() => {
-        // If it's the last subscription to accelerometer it will stop polling in the native API
-        subscription.unsubscribe();
-      }, 1000);
   }
 
   let intervalo = null
@@ -183,24 +195,7 @@ const App = () => {
     } catch (e) {
         console.error(e);
     }
-};
-  // useEffect(() => {
-  //   async function musicSpeed(){
-
-  //     console.log(pace)
-  //       if(pace == 'Parado'){
-  //         await TrackPlayer.setRate(1)
-  //       }else if(pace < 4 && pace > 3){
-  //         await TrackPlayer.setRate(1.25)
-  //       }else if(pace == 5 || pace == 4){
-  //         await TrackPlayer.setRate(1)
-  //       }else if(pace >= 6){
-  //         await TrackPlayer.setRate(0.5)
-  //       }
-
-  //   }
-  //   musicSpeed()
-  // },[pace])
+}
 
   const renderItens = ({item}) => {
     return(
@@ -229,25 +224,22 @@ const App = () => {
 
       <View style={styles.map_container}>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text>DISTÂNCIA de 5km</Text>
+          <Text style={{fontSize: 30}}>Velocidade: {velocidade} km/h</Text>
         </View>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text>Velocidade: {"(velocidade * 3.6).toFixed(2)"} km/h</Text>
-        </View>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text>Pace: {"pace"} min/km</Text>
+          <Text style={{fontSize: 30}}>Pace: {calcularPace(velocidade)} min/km</Text>
         </View>
         <TouchableOpacity
-          style={{backgroundColor:'red'}}
+          style={{backgroundColor:'red', marginBottom:20}}
           onPress={() => ativarAcelerometro(true)}
         >
-          <Text style={{color:'white'}}>Consultar</Text>
+          <Text style={{color:'white'}}>PLAY</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={{backgroundColor:'red'}}
           onPress={() => ativarAcelerometro(false)}
         >
-          <Text style={{color:'white'}}>cacela</Text>
+          <Text style={{color:'white'}}>STOP</Text>
         </TouchableOpacity>
       </View>
 
@@ -264,6 +256,7 @@ const App = () => {
           />
 
       </View>
+      
       <View style={styles.footer_container}>
         {
           status ? (
@@ -305,3 +298,5 @@ const styles = StyleSheet.create({
 });
 
 export default App;
+
+
